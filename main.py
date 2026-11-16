@@ -211,10 +211,11 @@ class Menu:
             blit_text(surface, self.hint, hint_font, DIM, (WIDTH // 2, HEIGHT - 24))
 
 class GameController:
-    def __init__(self, player, enemies, mode):
+    def __init__(self, player, enemies, mode, algorithm=None):
         self.player = player
         self.enemies = enemies
         self.mode = mode
+        self.algorithm = algorithm if algorithm else mode.get("algorithm", "astar")
         self.grid_count = mode["grid"]
         self.finish = mode["finish"]
 
@@ -316,8 +317,7 @@ class GameController:
 
     def enemy_turn(self):
         self.enemy_energy = max(0, self.enemy_energy - ENEMY_TURN_COST)
-        algo = self.mode.get("algorithm", "astar")
-        search_fn = gbfs_search if algo == "gbfs" else astar_search
+        search_fn = gbfs_search if self.algorithm == "gbfs" else astar_search
 
         for enemy in self.enemies:
             path = search_fn(
@@ -352,10 +352,11 @@ class GameController:
         return None
 
 
-def start_game(mode):
+def start_game(mode, algorithm=None):
     player = char.player(0, 0, playerImage)
     enemies = [char.player(col, row, enemyImage) for col, row in mode["enemies"]]
-    game = GameController(player, enemies, mode)
+    actual_algo = algorithm if algorithm else mode.get("algorithm", "astar")
+    game = GameController(player, enemies, mode, algorithm=actual_algo)
 
     # Implementasi Randomization (Tugas #5)
     # Setiap game baru dimulai atau Retry, posisi obstacle dan rumput diacak!
@@ -423,7 +424,7 @@ def draw_board(game):
 def draw_hud(game):
     limit = game.mode["move_limit"]
     moves_text = f"Moves: {game.moves}" + (f"/{limit}" if limit else "")
-    algo_name = "GBFS" if game.mode.get("algorithm") == "gbfs" else "A*"
+    algo_name = "GBFS" if game.algorithm == "gbfs" else "A*"
     screen.blit(hud_font.render(f"{game.mode['name']} [{algo_name}]", True, ACCENT), (12, 24))
     screen.blit(hud_font.render(moves_text, True, WHITE), (12, 48))
     screen.blit(hud_font.render(f"Seed: {game.map_seed}", True, DIM), (12, 72))
@@ -520,8 +521,18 @@ mode_menu = Menu(
     [m["name"] for m in GAME_MODES] + ["Back"],
     subtitle="Choose your challenge",
 )
+algo_menu = Menu(
+    "Select AI Algorithm",
+    ["A* Search", "Greedy Best-First (GBFS)", "Back"],
+    subtitle="Choose Bot Pathfinding",
+    descriptions={
+        0: "A*: Optimal cost path f(n)=g(n)+h(n), avoids costly grass",
+        1: "GBFS: Fast greedy heuristic h(n), moves straight toward goal",
+    }
+)
 
 state = "main_menu"
+chosen_mode = None
 game = None
 
 if __name__ == "__main__":
@@ -549,20 +560,31 @@ if __name__ == "__main__":
                     if kind == "back" or index == len(GAME_MODES): 
                         state = "main_menu"
                     else:
-                        game = start_game(GAME_MODES[index])
+                        chosen_mode = GAME_MODES[index]
+                        algo_menu.selected = 0
+                        algo_menu.subtitle = f"For {chosen_mode['name']} Mode"
+                        state = "algo_select"
+
+            elif state == "algo_select":
+                action = algo_menu.handle_event(event)
+                if action:
+                    kind, index = action
+                    if kind == "back" or index == 2:  # "Back" option
+                        state = "mode_select"
+                    else:
+                        selected_algo = "astar" if index == 0 else "gbfs"
+                        game = start_game(chosen_mode, algorithm=selected_algo)
                         state = "playing"
 
             elif state == "playing":
                 if game.result:
                     action = game.handle_result_event(event)
                     if action == "retry":
-                        game = start_game(game.mode)
+                        game = start_game(game.mode, algorithm=game.algorithm)
                     elif action == "back":
-                        mode_menu.selected = GAME_MODES.index(game.mode)
-                        state = "mode_select"
+                        state = "algo_select"
                 elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                    mode_menu.selected = GAME_MODES.index(game.mode)
-                    state = "mode_select"
+                    state = "algo_select"
                 else:
                     game.handle_event(event)
 
@@ -571,6 +593,8 @@ if __name__ == "__main__":
             draw_game(game)
         elif state == "mode_select":
             mode_menu.draw(screen)
+        elif state == "algo_select":
+            algo_menu.draw(screen)
         else:
             main_menu.draw(screen)
 
