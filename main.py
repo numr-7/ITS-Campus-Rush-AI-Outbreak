@@ -3,6 +3,9 @@ import char
 import random
 import os
 import math
+import mapgen
+from astar import astar_search
+from gbfs import gbfs_search
 
 pygame.init()
 
@@ -17,6 +20,20 @@ BASE_DIR = os.path.dirname(__file__)
 playerImage = pygame.image.load(os.path.join(BASE_DIR, "player.jpeg")).convert_alpha()
 enemyImage = pygame.image.load(os.path.join(BASE_DIR, "ai.png")).convert_alpha()
 tcImage = pygame.image.load(os.path.join(BASE_DIR, "tc.jpg")).convert()
+
+# Load obstacle & grass assets (Venya)
+OBSTACLES_DIR = os.path.join(BASE_DIR, "assets", "obstacles")
+obstacle_images_raw = []
+for fname in ["batuBesar_1.png", "batuBesar_2.png", "batuKecil_1.png", "batuKecil_2.png"]:
+    fpath = os.path.join(OBSTACLES_DIR, fname)
+    if os.path.exists(fpath):
+        obstacle_images_raw.append(pygame.image.load(fpath).convert_alpha())
+
+grass_images_raw = []
+for fname in ["rumput_1.png", "rumput_2.png", "rumput_3.png"]:
+    fpath = os.path.join(OBSTACLES_DIR, fname)
+    if os.path.exists(fpath):
+        grass_images_raw.append(pygame.image.load(fpath).convert_alpha())
 
 WHITE = (245, 245, 250)
 GRAY = (150, 155, 170)
@@ -73,20 +90,24 @@ for y in range(HEIGHT):
 GAME_MODES = [
     {
         "name": "Casual",
-        "desc": "Easier AI",
+        "desc": "Easier AI (Greedy Best-First Search)",
         "grid": 9,
         "finish": (4, 8),
         "enemies": [(8, 0)],
         "move_limit": None,
+        "obstacles": 10,
+        "algorithm": "gbfs",
     },
     {
         "name": "Challenging",
-        "desc": "Harder AI",
+        "desc": "Harder AI (A* Optimal Search)",
         "grid": 9,
         "finish": (4, 8),
         "enemies": [(8, 0)],
         "move_limit": None,
         "player_energy": 16,
+        "obstacles": 15,
+        "algorithm": "astar",
     },
 ]
 
@@ -206,6 +227,21 @@ class GameController:
             tcImage.convert_alpha(), (finish_px, finish_px)
         )
 
+        # Scale obstacle and grass images
+        self.obstacle_imgs = [
+            pygame.transform.smoothscale(img, (self.tile - 4, self.tile - 4))
+            for img in obstacle_images_raw
+        ] if obstacle_images_raw else []
+        self.grass_imgs = [
+            pygame.transform.smoothscale(img, (self.tile - 4, self.tile - 4))
+            for img in grass_images_raw
+        ] if grass_images_raw else []
+
+        self.obstacles = set()
+        self.terrain_costs = {}
+        self.obstacle_sprites = {}
+        self.grass_sprites = {}
+
         self.phase = "player" 
         self.enemy_started = 0
         self.moves = 0
@@ -236,10 +272,16 @@ class GameController:
         new_row = self.player.row + dy
 
         if 0 <= new_col < self.grid_count and 0 <= new_row < self.grid_count:
+            # Block player from walking into obstacles
+            if (new_col, new_row) in self.obstacles:
+                return
+
             self.player.col = new_col
             self.player.row = new_row
             self.moves += 1
-            self.player_energy = max(0, self.player_energy - PLAYER_MOVE_COST)
+            # Grass / heavier terrain consumes more energy if defined
+            cost = self.terrain_costs.get((new_col, new_row), PLAYER_MOVE_COST)
+            self.player_energy = max(0, self.player_energy - cost)
             self.check_result()
             if not self.result:
                 self.start_enemy_turn()
@@ -254,6 +296,9 @@ class GameController:
         elif any((e.col, e.row) == (self.player.col, self.player.row) for e in self.enemies):
             self.result = "lose"
             self.reason = "caught"
+        elif any((e.col, e.row) == self.finish for e in self.enemies):
+            self.result = "lose"
+            self.reason = "ai_win"
         elif self.player_energy <= 0:
             self.result = "lose"
             self.reason = "energy"
@@ -271,6 +316,19 @@ class GameController:
 
     def enemy_turn(self):
         self.enemy_energy = max(0, self.enemy_energy - ENEMY_TURN_COST)
+        algo = self.mode.get("algorithm", "astar")
+        search_fn = gbfs_search if algo == "gbfs" else astar_search
+
+        for enemy in self.enemies:
+            path = search_fn(
+                start=(enemy.col, enemy.row),
+                goal=self.finish,
+                grid_size=self.grid_count,
+                obstacles=self.obstacles,
+                terrain_costs=self.terrain_costs
+            )
+            if path and len(path) > 1:
+                enemy.col, enemy.row = path[1]
     
     def handle_result_event(self, event):
         if event.type == pygame.KEYDOWN:
@@ -297,7 +355,34 @@ class GameController:
 def start_game(mode):
     player = char.player(0, 0, playerImage)
     enemies = [char.player(col, row, enemyImage) for col, row in mode["enemies"]]
-    return GameController(player, enemies, mode)
+    game = GameController(player, enemies, mode)
+
+    # Implementasi Randomization (Tugas #5)
+    # Setiap game baru dimulai atau Retry, posisi obstacle dan rumput diacak!
+    num_obs = mode.get("obstacles", 12)
+    layout = mapgen.generate_map(
+        grid_count=game.grid_count,
+        player_start=(player.col, player.row),
+        enemy_starts=[(e.col, e.row) for e in enemies],
+        finish=game.finish,
+        num_obstacles=num_obs,
+    )
+
+    game.obstacles = layout["obstacles"]
+    game.terrain_costs = layout["terrain_costs"]
+    game.map_seed = layout["seed"]
+
+    # Pasangkan varian gambar batu dan rumput acak ke tiap petak
+    rng = random.Random(layout["seed"])
+    if game.obstacle_imgs:
+        for obs in game.obstacles:
+            game.obstacle_sprites[obs] = rng.choice(game.obstacle_imgs)
+    if game.grass_imgs:
+        for grass in game.terrain_costs:
+            game.grass_sprites[grass] = rng.choice(game.grass_imgs)
+
+    print(f"[Randomization] Map di-generate dengan seed {layout['seed']}: {len(game.obstacles)} obstacles, {len(game.terrain_costs)} rumput.")
+    return game
 
 
 def cell_rect(game, col, row):
@@ -305,20 +390,43 @@ def cell_rect(game, col, row):
                        game.tile, game.tile)
 
 def draw_board(game):
+    # 1. Gambar petak rumput (terrain cost)
+    for pos in game.terrain_costs:
+        c_rect = cell_rect(game, *pos)
+        grass_tint = pygame.Surface((game.tile, game.tile), pygame.SRCALPHA)
+        grass_tint.fill((46, 125, 50, 45))
+        screen.blit(grass_tint, c_rect)
+        if pos in game.grass_sprites:
+            img = game.grass_sprites[pos]
+            screen.blit(img, img.get_rect(center=c_rect.center))
+
+    # 2. Gambar garis grid
     for i in range(game.grid_count + 1):
         x = game.ox + i * game.tile
         y = game.oy + i * game.tile
         pygame.draw.line(screen, GRID_COLOR, (x, game.oy), (x, game.oy + game.size))
         pygame.draw.line(screen, GRID_COLOR, (game.ox, y), (game.ox + game.size, y))
 
+    # 3. Gambar Finish
     finish_cell = cell_rect(game, *game.finish)
     screen.blit(game.finish_img, game.finish_img.get_rect(center=finish_cell.center))
+
+    # 4. Gambar Obstacle (Batu)
+    for pos in game.obstacles:
+        c_rect = cell_rect(game, *pos)
+        if pos in game.obstacle_sprites:
+            img = game.obstacle_sprites[pos]
+            screen.blit(img, img.get_rect(center=c_rect.center))
+        else:
+            pygame.draw.rect(screen, (100, 100, 100), c_rect.inflate(-6, -6), border_radius=6)
 
 def draw_hud(game):
     limit = game.mode["move_limit"]
     moves_text = f"Moves: {game.moves}" + (f"/{limit}" if limit else "")
-    screen.blit(hud_font.render(game.mode["name"], True, ACCENT), (12, 24))
+    algo_name = "GBFS" if game.mode.get("algorithm") == "gbfs" else "A*"
+    screen.blit(hud_font.render(f"{game.mode['name']} [{algo_name}]", True, ACCENT), (12, 24))
     screen.blit(hud_font.render(moves_text, True, WHITE), (12, 48))
+    screen.blit(hud_font.render(f"Seed: {game.map_seed}", True, DIM), (12, 72))
     screen.blit(hud_font.render("Esc: menu", True, GRAY), (12, HEIGHT - 32))
 
     x = game.ox + game.size + 16
@@ -370,6 +478,8 @@ def draw_result(game):
         sub = f"You reached the finish in {game.moves} moves"
     elif game.reason == "caught":
         sub = "The AI caught you"
+    elif game.reason == "ai_win":
+        sub = "The AI reached Informatics first"
     elif game.reason == "energy":
         sub = "You ran out of energy"
     else:
@@ -414,56 +524,57 @@ mode_menu = Menu(
 state = "main_menu"
 game = None
 
-running = True
-while running:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-            print("Game quitted!")
-            continue
+if __name__ == "__main__":
+    running = True
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+                print("Game quitted!")
+                continue
 
-        if state == "main_menu":
-            action = main_menu.handle_event(event)
-            if action and action[0] == "select":
-                if action[1] == 0:  
-                    mode_menu.selected = 0
-                    state = "mode_select"
-                else:       
-                    running = False
+            if state == "main_menu":
+                action = main_menu.handle_event(event)
+                if action and action[0] == "select":
+                    if action[1] == 0:  
+                        mode_menu.selected = 0
+                        state = "mode_select"
+                    else:       
+                        running = False
 
-        elif state == "mode_select":
-            action = mode_menu.handle_event(event)
-            if action:
-                kind, index = action
-                if kind == "back" or index == len(GAME_MODES): 
-                    state = "main_menu"
-                else:
-                    game = start_game(GAME_MODES[index])
-                    state = "playing"
+            elif state == "mode_select":
+                action = mode_menu.handle_event(event)
+                if action:
+                    kind, index = action
+                    if kind == "back" or index == len(GAME_MODES): 
+                        state = "main_menu"
+                    else:
+                        game = start_game(GAME_MODES[index])
+                        state = "playing"
 
-        elif state == "playing":
-            if game.result:
-                action = game.handle_result_event(event)
-                if action == "retry":
-                    game = start_game(game.mode)
-                elif action == "back":
+            elif state == "playing":
+                if game.result:
+                    action = game.handle_result_event(event)
+                    if action == "retry":
+                        game = start_game(game.mode)
+                    elif action == "back":
+                        mode_menu.selected = GAME_MODES.index(game.mode)
+                        state = "mode_select"
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                     mode_menu.selected = GAME_MODES.index(game.mode)
                     state = "mode_select"
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                mode_menu.selected = GAME_MODES.index(game.mode)
-                state = "mode_select"
-            else:
-                game.handle_event(event)
+                else:
+                    game.handle_event(event)
 
-    if state == "playing":
-        game.update()
-        draw_game(game)
-    elif state == "mode_select":
-        mode_menu.draw(screen)
-    else:
-        main_menu.draw(screen)
+        if state == "playing":
+            game.update()
+            draw_game(game)
+        elif state == "mode_select":
+            mode_menu.draw(screen)
+        else:
+            main_menu.draw(screen)
 
-    pygame.display.flip()
-    clock.tick(60)
+        pygame.display.flip()
+        clock.tick(60)
 
-pygame.quit()
+    pygame.quit()
