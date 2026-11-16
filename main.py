@@ -2,6 +2,7 @@ import pygame
 import char
 import random
 import os
+import math
 
 pygame.init()
 
@@ -11,94 +12,122 @@ screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("ITS Campus Rush: AI Outbreak")
 clock = pygame.time.Clock()
 
+#images
 BASE_DIR = os.path.dirname(__file__)
 playerImage = pygame.image.load(os.path.join(BASE_DIR, "player.jpeg")).convert_alpha()
 enemyImage = pygame.image.load(os.path.join(BASE_DIR, "ai.png")).convert_alpha()
-
 tcImage = pygame.image.load(os.path.join(BASE_DIR, "tc.jpg")).convert()
 
-# Menu background: scale to cover the whole window (keeps aspect ratio), crop the extra
+WHITE = (245, 245, 250)
+GRAY = (150, 155, 170)
+DIM = (95, 100, 118)
+ACCENT = (70, 130, 220)
+ACCENT_LIGHT = (150, 190, 255)
+BUTTON_BG = (30, 32, 42)
+BUTTON_BORDER = (62, 66, 84)
+PANEL_BG = (14, 16, 24)
+PANEL_BORDER = (50, 54, 70)
+GREEN = (90, 210, 130)
+RED = (235, 85, 85)
+BLACK = (0, 0, 0)
+GRID_COLOR = (55, 55, 55)
+
+player_max_energy = 10
+ENEMY_MAX_ENERGY = 10
+PLAYER_MOVE_COST = 1
+ENEMY_TURN_COST = 1 
+ENEMY_DELAY = 600
+
+GRID_PADDING = 24
+
+#font
+def make_font(size, bold=False):
+    font = pygame.font.Font(None, size)
+    font.set_bold(bold)
+    return font
+
+title_font = make_font(84, bold=True)
+subtitle_font = make_font(40, bold=True)
+button_font = make_font(36, bold=True)
+desc_font = make_font(26)
+hint_font = make_font(22)
+label_font = make_font(20, bold=True)
+hud_font = make_font(24, bold=True)
+hud_value_font = make_font(50, bold=True)
+result_title_font = make_font(60, bold=True)
+result_sub_font = make_font(28)
+
+#bg
 _scale = max(WIDTH / tcImage.get_width(), HEIGHT / tcImage.get_height())
 _bg_size = (int(tcImage.get_width() * _scale), int(tcImage.get_height() * _scale))
 _bg_scaled = pygame.transform.smoothscale(tcImage, _bg_size)
 menuBackground = pygame.Surface((WIDTH, HEIGHT))
 menuBackground.blit(_bg_scaled, _bg_scaled.get_rect(center=(WIDTH // 2, HEIGHT // 2)))
 
-# Dark overlay so the menu text stays readable (0-255, higher = darker)
 menuOverlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-menuOverlay.fill((0, 0, 0, 150))
+for y in range(HEIGHT):
+    t = y / (HEIGHT - 1)
+    pygame.draw.line(menuOverlay, (8, 10, 20, int(120 + 100 * t)), (0, y), (WIDTH, y))
 
-finishImage = pygame.transform.scale(tcImage.convert_alpha(), (44, 44))
-finish_col, finish_row = 4, 8
-
-BLACK = (0, 0, 0)
-WHITE = (240, 240, 240)
-GRAY = (140, 140, 140)
-ACCENT = (70, 130, 220)
-BUTTON_BG = (35, 35, 45)
-
-GRID_PADDING = 24
-TILE_SIZE = 48
-
-GRID_COUNT = min(
-    (WIDTH - 2 * GRID_PADDING) // TILE_SIZE,
-    (HEIGHT - 2 * GRID_PADDING) // TILE_SIZE
-)
-
-GRID_SIZE = GRID_COUNT * TILE_SIZE
-GRID_X = (WIDTH - GRID_SIZE) // 2
-GRID_Y = (HEIGHT - GRID_SIZE) // 2
-GRID_COLOR = (55, 55, 55)
-
-# Fonts
-title_font = pygame.font.SysFont(None, 72)
-subtitle_font = pygame.font.SysFont(None, 30)
-button_font = pygame.font.SysFont(None, 36)
-small_font = pygame.font.SysFont(None, 24)
-hud_font = pygame.font.SysFont(None, 22)
-
-# ---------------------------------------------------------------------------
-# Game modes: edit / add entries here and they show up in the selection screen.
-#   enemies    -> list of (col, row) starting cells, one AI per entry
-#   move_limit -> max number of player moves (None = unlimited)
-# ---------------------------------------------------------------------------
+#posisi(note , idk kayanya player nanti harusnya di randomize or not)
 GAME_MODES = [
     {
         "name": "Casual",
         "desc": "Easier AI",
+        "grid": 9,
+        "finish": (4, 8),
         "enemies": [(8, 0)],
         "move_limit": None,
     },
     {
         "name": "Challenging",
         "desc": "Harder AI",
+        "grid": 9,
+        "finish": (4, 8),
         "enemies": [(8, 0)],
         "move_limit": None,
+        "player_energy": 16,
     },
 ]
 
+#helpers
+def blit_text(surface, text, font, color, pos, anchor="center", shadow=True):
+    img = font.render(text, True, color)
+    rect = img.get_rect(**{anchor: pos})
+    if shadow:
+        surface.blit(font.render(text, True, (0, 0, 0)), rect.move(2, 2))
+    surface.blit(img, rect)
+    return rect
 
+
+def draw_panel(surface, rect, color=PANEL_BG, alpha=200, radius=14, border=None):
+    panel = pygame.Surface(rect.size, pygame.SRCALPHA)
+    pygame.draw.rect(panel, (*color, alpha), panel.get_rect(), border_radius=radius)
+    surface.blit(panel, rect.topleft)
+    if border:
+        pygame.draw.rect(surface, border, rect, width=1, border_radius=radius)
+
+
+#menu
 class Menu:
-    """A simple vertical menu with keyboard + mouse support."""
-
-    def __init__(self, title, options, subtitle="", descriptions=None):
+    def __init__(self, title, options, subtitle="", descriptions=None, hint=""):
         self.title = title
         self.subtitle = subtitle
         self.options = options
         self.descriptions = descriptions or {}
+        self.hint = hint
         self.selected = 0
 
     def _rects(self):
-        w, h, gap = 320, 48, 14
+        w, h, gap = 340, 52, 16
         total = len(self.options) * h + (len(self.options) - 1) * gap
-        start_y = HEIGHT // 2 - total // 2 + 40
+        start_y = HEIGHT // 2 - total // 2 + 30
         return [
             pygame.Rect((WIDTH - w) // 2, start_y + i * (h + gap), w, h)
             for i in range(len(self.options))
         ]
 
     def handle_event(self, event):
-        """Returns ("select", index), ("back", None), or None."""
         count = len(self.options)
 
         if event.type == pygame.KEYDOWN:
@@ -128,34 +157,65 @@ class Menu:
         surface.blit(menuBackground, (0, 0))
         surface.blit(menuOverlay, (0, 0))
 
-        title = title_font.render(self.title, True, WHITE)
-        surface.blit(title, title.get_rect(center=(WIDTH // 2, 70)))
-
+        blit_text(surface, self.title, title_font, WHITE, (WIDTH // 2, 66))
         if self.subtitle:
-            sub = subtitle_font.render(self.subtitle, True, ACCENT)
-            surface.blit(sub, sub.get_rect(center=(WIDTH // 2, 115)))
+            blit_text(surface, self.subtitle, subtitle_font, ACCENT_LIGHT, (WIDTH // 2, 116))
 
+        ticks = pygame.time.get_ticks()
         for i, rect in enumerate(self._rects()):
-            is_selected = i == self.selected
-            pygame.draw.rect(surface, ACCENT if is_selected else BUTTON_BG, rect, border_radius=8)
-            label = button_font.render(self.options[i], True, WHITE if is_selected else GRAY)
-            surface.blit(label, label.get_rect(center=rect.center))
+            selected = i == self.selected
+            if selected:
+                pulse = (math.sin(ticks / 250) + 1) / 2
+                grow = 8 + int(pulse * 6)
+                draw_panel(surface, rect.inflate(grow, grow), ACCENT,
+                           alpha=50 + int(pulse * 50), radius=16)
+                pygame.draw.rect(surface, ACCENT, rect, border_radius=10)
+                pygame.draw.rect(surface, ACCENT_LIGHT, rect, width=1, border_radius=10)
+            else:
+                draw_panel(surface, rect, BUTTON_BG, alpha=215, radius=10, border=BUTTON_BORDER)
 
+            color = WHITE if selected else GRAY
+            blit_text(surface, self.options[i], button_font, color, rect.center)
+
+        # description pill
         desc = self.descriptions.get(self.selected)
         if desc:
-            text = small_font.render(desc, True, GRAY)
-            surface.blit(text, text.get_rect(center=(WIDTH // 2, HEIGHT - 40)))
+            tw, th = desc_font.size(desc)
+            pill = pygame.Rect(0, 0, tw + 36, th + 12)
+            pill.center = (WIDTH // 2, HEIGHT - 70)
+            draw_panel(surface, pill, PANEL_BG, alpha=180, radius=14)
+            blit_text(surface, desc, desc_font, GRAY, pill.center, shadow=False)
 
+        if self.hint:
+            blit_text(surface, self.hint, hint_font, DIM, (WIDTH // 2, HEIGHT - 24))
 
 class GameController:
-    def __init__(self, player, enemies, grid_count, mode):
+    def __init__(self, player, enemies, mode):
         self.player = player
         self.enemies = enemies
-        self.grid_count = grid_count
         self.mode = mode
-        self.phase = "player"
+        self.grid_count = mode["grid"]
+        self.finish = mode["finish"]
+
+        self.tile = (HEIGHT - 2 * GRID_PADDING) // self.grid_count
+        self.size = self.tile * self.grid_count
+        self.ox = (WIDTH - self.size) // 2
+        self.oy = (HEIGHT - self.size) // 2
+        finish_px = self.tile - 4
+        self.finish_img = pygame.transform.smoothscale(
+            tcImage.convert_alpha(), (finish_px, finish_px)
+        )
+
+        self.phase = "player" 
+        self.enemy_started = 0
         self.moves = 0
-        self.result = None  # None, "win", or "lose"
+        self.max_energy = mode.get("player_energy", player_max_energy)
+        self.player_energy = self.max_energy
+        self.enemy_max_energy = ENEMY_MAX_ENERGY
+        self.enemy_energy = self.enemy_max_energy
+        self.result = None     
+        self.reason = None
+        self.result_choice = 0
 
     def handle_event(self, event):
         if self.phase != "player" or self.result or event.type != pygame.KEYDOWN:
@@ -165,11 +225,10 @@ class GameController:
             pygame.K_UP: (0, -1),
             pygame.K_DOWN: (0, 1),
             pygame.K_LEFT: (-1, 0),
-            pygame.K_RIGHT: (1, 0)
+            pygame.K_RIGHT: (1, 0),
         }
 
         if event.key not in moves:
-            print("Invalid move!")
             return
 
         dx, dy = moves[event.key]
@@ -180,86 +239,179 @@ class GameController:
             self.player.col = new_col
             self.player.row = new_row
             self.moves += 1
+            self.player_energy = max(0, self.player_energy - PLAYER_MOVE_COST)
             self.check_result()
             if not self.result:
-                self.phase = "enemy"
+                self.start_enemy_turn()
+
+    def start_enemy_turn(self):
+        self.phase = "enemy"
+        self.enemy_started = pygame.time.get_ticks()
 
     def check_result(self):
-        if (self.player.col, self.player.row) == (finish_col, finish_row):
+        if (self.player.col, self.player.row) == self.finish:
             self.result = "win"
         elif any((e.col, e.row) == (self.player.col, self.player.row) for e in self.enemies):
             self.result = "lose"
+            self.reason = "caught"
+        elif self.player_energy <= 0:
+            self.result = "lose"
+            self.reason = "energy"
         elif self.mode["move_limit"] is not None and self.moves >= self.mode["move_limit"]:
             self.result = "lose"
+            self.reason = "limit"
 
     def update(self):
-        if self.phase == "enemy":
-            self.enemy_turn()
-            self.check_result()
-            self.phase = "player"
+        if self.phase == "enemy" and not self.result:
+            if pygame.time.get_ticks() - self.enemy_started >= ENEMY_DELAY:
+                self.enemy_turn()
+                self.check_result()
+                if not self.result:
+                    self.phase = "player"
 
     def enemy_turn(self):
-        print("enemy's turn")
-        # place holder: move each enemy in self.enemies here
-        pass
+        self.enemy_energy = max(0, self.enemy_energy - ENEMY_TURN_COST)
+    
+    def handle_result_event(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key in (pygame.K_LEFT, pygame.K_RIGHT, pygame.K_UP, pygame.K_DOWN):
+                self.result_choice = 1 - self.result_choice
+            elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                return "retry" if self.result_choice == 0 else "back"
+            elif event.key == pygame.K_ESCAPE:
+                return "back"
+
+        elif event.type == pygame.MOUSEMOTION:
+            for i, rect in enumerate(result_button_rects()):
+                if rect.collidepoint(event.pos):
+                    self.result_choice = i
+
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for i, rect in enumerate(result_button_rects()):
+                if rect.collidepoint(event.pos):
+                    return "retry" if i == 0 else "back"
+
+        return None
 
 
 def start_game(mode):
     player = char.player(0, 0, playerImage)
     enemies = [char.player(col, row, enemyImage) for col, row in mode["enemies"]]
-    return GameController(player, enemies, GRID_COUNT, mode)
+    return GameController(player, enemies, mode)
 
 
-def draw_game(game):
-    screen.fill(BLACK)
+def cell_rect(game, col, row):
+    return pygame.Rect(game.ox + col * game.tile, game.oy + row * game.tile,
+                       game.tile, game.tile)
 
-    for i in range(GRID_COUNT + 1):
-        x = GRID_X + i * TILE_SIZE
-        y = GRID_Y + i * TILE_SIZE
+def draw_board(game):
+    for i in range(game.grid_count + 1):
+        x = game.ox + i * game.tile
+        y = game.oy + i * game.tile
+        pygame.draw.line(screen, GRID_COLOR, (x, game.oy), (x, game.oy + game.size))
+        pygame.draw.line(screen, GRID_COLOR, (game.ox, y), (game.ox + game.size, y))
 
-        pygame.draw.line(screen, GRID_COLOR, (x, GRID_Y), (x, GRID_Y + GRID_SIZE))
-        pygame.draw.line(screen, GRID_COLOR, (GRID_X, y), (GRID_X + GRID_SIZE, y))
+    finish_cell = cell_rect(game, *game.finish)
+    screen.blit(game.finish_img, game.finish_img.get_rect(center=finish_cell.center))
 
-    game.player.draw(screen, GRID_X, GRID_Y, TILE_SIZE)
-    for enemy in game.enemies:
-        enemy.draw(screen, GRID_X, GRID_Y, TILE_SIZE)
-
-    finish_cell = pygame.Rect(
-        GRID_X + finish_col * TILE_SIZE,
-        GRID_Y + finish_row * TILE_SIZE,
-        TILE_SIZE, TILE_SIZE
-    )
-    screen.blit(finishImage, finishImage.get_rect(center=finish_cell.center))
-
-    # HUD (left margin)
+def draw_hud(game):
     limit = game.mode["move_limit"]
     moves_text = f"Moves: {game.moves}" + (f"/{limit}" if limit else "")
     screen.blit(hud_font.render(game.mode["name"], True, ACCENT), (12, 24))
     screen.blit(hud_font.render(moves_text, True, WHITE), (12, 48))
     screen.blit(hud_font.render("Esc: menu", True, GRAY), (12, HEIGHT - 32))
 
-    # Result overlay
+    x = game.ox + game.size + 16
+
     if game.result:
-        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 170))
-        screen.blit(overlay, (0, 0))
+        turn_text, turn_color = "Game over", GRAY
+    elif game.phase == "player":
+        turn_text, turn_color = "Your turn", ACCENT
+    else:
+        turn_text, turn_color = "AI turn", RED
+    screen.blit(hud_font.render(turn_text, True, turn_color), (x, 24))
 
-        msg = "You reached the finish!" if game.result == "win" else "You lost!"
-        text = title_font.render(msg, True, WHITE)
-        screen.blit(text, text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 20)))
-        hint = small_font.render("Press Enter to return to the menu", True, GRAY)
-        screen.blit(hint, hint.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 30)))
+    screen.blit(hud_font.render("Energy", True, GRAY), (x, 60))
+
+    active = not game.result
+    you_marker = "> " if active and game.phase == "player" else "  "
+    ai_marker = "> " if active and game.phase == "enemy" else "  "
+    screen.blit(hud_font.render(f"{you_marker}You: {game.player_energy}/{game.max_energy}", True, WHITE), (x, 84))
+    screen.blit(hud_font.render(f"{ai_marker}AI: {game.enemy_energy}/{game.enemy_max_energy}", True, RED), (x, 108))
+
+def result_card_rect():
+    card = pygame.Rect(0, 0, 460, 250)
+    card.center = (WIDTH // 2, HEIGHT // 2)
+    return card
+
+def result_button_rects():
+    card = result_card_rect()
+    w, h, gap = 170, 46, 20
+    x0 = card.centerx - (w * 2 + gap) // 2
+    y = card.y + 150
+    return [pygame.Rect(x0, y, w, h), pygame.Rect(x0 + w + gap, y, w, h)]
 
 
-# --- Menus -----------------------------------------------------------------
-main_menu = Menu("ITS Campus Rush", ["Play", "Quit"], subtitle="AI Outbreak")
+def draw_result(game):
+    dim = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    dim.fill((0, 0, 0, 160))
+    screen.blit(dim, (0, 0))
+
+    won = game.result == "win"
+    color = GREEN if won else RED
+
+    card = result_card_rect()
+    draw_panel(screen, card, PANEL_BG, alpha=235, radius=20, border=color)
+
+    title = "Mission Complete!" if won else "Game Over"
+    blit_text(screen, title, result_title_font, color, (card.centerx, card.y + 55))
+
+    if won:
+        sub = f"You reached the finish in {game.moves} moves"
+    elif game.reason == "caught":
+        sub = "The AI caught you"
+    elif game.reason == "energy":
+        sub = "You ran out of energy"
+    else:
+        sub = "You ran out of moves"
+    blit_text(screen, sub, result_sub_font, WHITE, (card.centerx, card.y + 105), shadow=False)
+
+    labels = ["Retry", "Back"]
+    for i, rect in enumerate(result_button_rects()):
+        selected = i == game.result_choice
+        if selected:
+            pygame.draw.rect(screen, ACCENT, rect, border_radius=10)
+            pygame.draw.rect(screen, ACCENT_LIGHT, rect, width=1, border_radius=10)
+            text_color = WHITE
+        else:
+            draw_panel(screen, rect, BUTTON_BG, alpha=215, radius=10, border=BUTTON_BORDER)
+            text_color = GRAY
+        blit_text(screen, labels[i], hud_font, text_color, rect.center)
+
+def draw_game(game):
+    screen.fill(BLACK)
+    draw_board(game)
+    draw_hud(game)
+
+    game.player.draw(screen, game.ox, game.oy, game.tile)
+    for enemy in game.enemies:
+        enemy.draw(screen, game.ox, game.oy, game.tile)
+
+    if game.result:
+        draw_result(game)
+
+#main menu or landing page
+main_menu = Menu(
+    "ITS Campus Rush", ["Play", "Quit"],
+    subtitle="AI Outbreak",
+)
 mode_menu = Menu(
     "Select Game Mode",
     [m["name"] for m in GAME_MODES] + ["Back"],
-    descriptions={i: m["desc"] for i, m in enumerate(GAME_MODES)},
+    subtitle="Choose your challenge",
 )
 
-state = "main_menu"  # "main_menu", "mode_select", "playing"
+state = "main_menu"
 game = None
 
 running = True
@@ -273,27 +425,33 @@ while running:
         if state == "main_menu":
             action = main_menu.handle_event(event)
             if action and action[0] == "select":
-                if action[1] == 0:      # Play
+                if action[1] == 0:  
                     mode_menu.selected = 0
                     state = "mode_select"
-                else:                   # Quit
+                else:       
                     running = False
 
         elif state == "mode_select":
             action = mode_menu.handle_event(event)
             if action:
                 kind, index = action
-                if kind == "back" or index == len(GAME_MODES):  # Esc or "Back"
+                if kind == "back" or index == len(GAME_MODES): 
                     state = "main_menu"
                 else:
                     game = start_game(GAME_MODES[index])
                     state = "playing"
 
         elif state == "playing":
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                state = "main_menu"
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN and game.result:
-                state = "main_menu"
+            if game.result:
+                action = game.handle_result_event(event)
+                if action == "retry":
+                    game = start_game(game.mode)
+                elif action == "back":
+                    mode_menu.selected = GAME_MODES.index(game.mode)
+                    state = "mode_select"
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                mode_menu.selected = GAME_MODES.index(game.mode)
+                state = "mode_select"
             else:
                 game.handle_event(event)
 
