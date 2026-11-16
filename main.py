@@ -72,7 +72,7 @@ GAME_MODES = [
     {
         "name": "Challenging",
         "desc": "Harder AI",
-        "enemies": [(8, 0), (0, 8)],
+        "enemies": [(8, 0)],
         "move_limit": None,
     },
 ]
