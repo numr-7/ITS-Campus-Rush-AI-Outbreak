@@ -49,8 +49,8 @@ RED = (235, 85, 85)
 BLACK = (0, 0, 0)
 GRID_COLOR = (55, 55, 55)
 
-player_max_energy = 10
-ENEMY_MAX_ENERGY = 10
+player_max_energy = 15
+ENEMY_MAX_ENERGY = 15
 PLAYER_MOVE_COST = 1
 ENEMY_TURN_COST = 1 
 ENEMY_DELAY = 600
