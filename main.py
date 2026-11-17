@@ -17,7 +17,7 @@ clock = pygame.time.Clock()
 
 #images
 BASE_DIR = os.path.dirname(__file__)
-playerImage = pygame.image.load(os.path.join(BASE_DIR, "almetITS.png")).convert_alpha()
+playerImage = pygame.image.load(os.path.join(BASE_DIR, "almet.png")).convert_alpha()
 enemyImage = pygame.image.load(os.path.join(BASE_DIR, "ai.png")).convert_alpha()
 tcImage = pygame.image.load(os.path.join(BASE_DIR, "tc.jpg")).convert()
 
