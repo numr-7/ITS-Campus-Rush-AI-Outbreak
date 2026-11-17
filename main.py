@@ -49,7 +49,7 @@ RED = (235, 85, 85)
 BLACK = (0, 0, 0)
 GRID_COLOR = (55, 55, 55)
 
-player_max_energy = 15
+PLAYER_MAX_ENERGY = 15
 ENEMY_MAX_ENERGY = 15
 PLAYER_MOVE_COST = 1
 ENEMY_TURN_COST = 1 
@@ -246,7 +246,7 @@ class GameController:
         self.phase = "player" 
         self.enemy_started = 0
         self.moves = 0
-        self.max_energy = mode.get("player_energy", player_max_energy)
+        self.max_energy = mode.get("player_energy", PLAYER_MAX_ENERGY)
         self.player_energy = self.max_energy
         self.enemy_max_energy = ENEMY_MAX_ENERGY
         self.enemy_energy = self.enemy_max_energy
@@ -280,7 +280,6 @@ class GameController:
             self.player.col = new_col
             self.player.row = new_row
             self.moves += 1
-            # Grass / heavier terrain consumes more energy if defined
             cost = self.terrain_costs.get((new_col, new_row), PLAYER_MOVE_COST)
             self.player_energy = max(0, self.player_energy - cost)
             self.check_result()
@@ -316,7 +315,6 @@ class GameController:
                     self.phase = "player"
 
     def enemy_turn(self):
-        self.enemy_energy = max(0, self.enemy_energy - ENEMY_TURN_COST)
         search_fn = gbfs_search if self.algorithm == "gbfs" else astar_search
 
         for enemy in self.enemies:
@@ -327,8 +325,16 @@ class GameController:
                 obstacles=self.obstacles,
                 terrain_costs=self.terrain_costs
             )
-            if path and len(path) > 1:
-                enemy.col, enemy.row = path[1]
+            if not path or len(path) < 2:
+                continue
+
+            next_cell = path[1]
+            cost = self.terrain_costs.get(next_cell, ENEMY_TURN_COST)
+            if self.enemy_energy < cost:
+                continue
+
+            enemy.col, enemy.row = next_cell
+            self.enemy_energy -= cost
     
     def handle_result_event(self, event):
         if event.type == pygame.KEYDOWN:

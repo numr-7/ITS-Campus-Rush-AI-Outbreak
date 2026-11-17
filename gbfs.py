@@ -1,10 +1,11 @@
 import heapq
 from typing import List, Tuple, Set, Dict, Optional, Union, Any
 
-# Arah pergerakan 4-arah: (col, row)
+# Arah gerak (4-arah)
 DIRECTIONS: List[Tuple[int, int]] = [(0, -1), (0, 1), (-1, 0), (1, 0)]
 
 
+# Normalisasi input
 def _normalize_pos(pos: Any) -> Tuple[int, int]:
     if hasattr(pos, 'col') and hasattr(pos, 'row'):
         return (int(pos.col), int(pos.row))
@@ -15,10 +16,12 @@ def _normalize_pos(pos: Any) -> Tuple[int, int]:
     raise TypeError(f"Posisi tidak valid: {pos}")
 
 
+# Fungsi heuristik
 def manhattan_distance(a: Tuple[int, int], b: Tuple[int, int]) -> int:
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
+# Algoritma utama
 def gbfs_search(
     start: Union[Tuple[int, int], Any],
     goal: Union[Tuple[int, int], Any],
@@ -28,9 +31,11 @@ def gbfs_search(
     terrain_costs: Optional[Dict[Tuple[int, int], int]] = None,
     return_cost: bool = False
 ) -> Union[List[Tuple[int, int]], Tuple[List[Tuple[int, int]], int]]:
+    # 1. Format koordinat
     start_pos = _normalize_pos(start)
     goal_pos = _normalize_pos(goal)
 
+    # 2. Setup map
     if isinstance(grid_size, list) and len(grid_size) > 0 and isinstance(grid_size[0], list):
         grid = grid_size
         grid_size = (len(grid[0]), len(grid))
@@ -52,6 +57,7 @@ def gbfs_search(
 
     obstacle_set = set(obstacles) if obstacles else set()
 
+    # 3. Cek rintangan
     def is_obstacle(pos: Tuple[int, int]) -> bool:
         c, r = pos
         if not (0 <= c < cols and 0 <= r < rows):
@@ -74,13 +80,14 @@ def gbfs_search(
             return max(1, terrain_costs[pos])
         return 1
 
+    # 4. Validasi posisi
     if is_obstacle(start_pos) or is_obstacle(goal_pos):
         return ([], 0) if return_cost else []
 
     if start_pos == goal_pos:
         return ([start_pos], 0) if return_cost else [start_pos]
 
-    # f(n) = h(n)
+    # 5. Priority queue: f(n) = h(n)
     tie_breaker = 0
     h_start = manhattan_distance(start_pos, goal_pos)
     open_heap = []
@@ -90,6 +97,7 @@ def gbfs_search(
     came_from: Dict[Tuple[int, int], Optional[Tuple[int, int]]] = {start_pos: None}
     path_found = False
 
+    # 6. Siklus pencarian
     while open_heap:
         h_curr, _, current = heapq.heappop(open_heap)
 
@@ -113,6 +121,7 @@ def gbfs_search(
                 tie_breaker += 1
                 heapq.heappush(open_heap, (h_neighbor, tie_breaker, neighbor))
 
+    # 7. Rekonstruksi jalur
     if not path_found:
         return ([], 0) if return_cost else []
 
@@ -131,6 +140,7 @@ def gbfs_search(
     return (path, total_cost) if return_cost else path
 
 
+# Langkah berikutnya
 def get_next_move(
     start: Union[Tuple[int, int], Any],
     goal: Union[Tuple[int, int], Any],

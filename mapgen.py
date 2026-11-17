@@ -1,8 +1,3 @@
-"""
-mapgen.py - Implementasi Randomization untuk ITS Campus Rush: AI Outbreak
-Tugas #5: Randomization (Obstacle, Terrain, & Solvability Verification)
-"""
-
 import random
 from typing import List, Tuple, Set, Dict, Optional, Any
 from astar import astar_search
@@ -17,10 +12,7 @@ def is_solvable(
     obstacles: Set[Coord],
     terrain_costs: Optional[Dict[Coord, int]] = None
 ) -> bool:
-    """
-    Mengecek apakah ada jalur valid dari start ke goal menggunakan A* search.
-    Mengembalikan True jika jalur ditemukan, False jika terhalang total.
-    """
+    
     path = astar_search(
         start=start,
         goal=goal,
@@ -42,28 +34,7 @@ def generate_map(
     seed: Optional[int] = None,
     max_attempts: int = 200
 ) -> Dict[str, Any]:
-    """
-    Menghasilkan layout peta acak dengan jaminan validitas (solvable).
-
-    Args:
-        grid_count: Ukuran grid (NxN, default 9)
-        player_start: Koordinat awal player (col, row)
-        enemy_starts: List koordinat awal bot/enemy
-        finish: Koordinat tujuan (gedung Informatika)
-        num_obstacles: Jumlah obstacle yang ingin di-generate
-        grass_ratio: Proporsi petak rumput (biaya lebih tinggi)
-        grass_cost: Biaya traversal petak rumput (default 3)
-        seed: Seed opsional untuk reproducibility (demo/evaluasi)
-        max_attempts: Batas percobaan pengacakan sebelum mengurangi obstacle
-
-    Returns:
-        Dict berisi:
-            - 'seed': integer seed yang digunakan
-            - 'obstacles': set berisi tuple (col, row)
-            - 'terrain_costs': dict mapping (col, row) -> int cost
-            - 'player_path_len': panjang jalur A* player ke finish
-            - 'enemy_paths_len': list panjang jalur tiap enemy ke finish
-    """
+ 
     if enemy_starts is None:
         enemy_starts = [(8, 0)]
 
